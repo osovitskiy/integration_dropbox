@@ -174,6 +174,11 @@ class DropboxAPIService {
 				return ['error' => $this->l10n->t('Bad credentials')];
 			}
 
+			$responseArray = json_decode($response->getHeader('Dropbox-Api-Result'), true);
+			if (is_null($responseArray) || isset($responseArray['error'])) {
+				return ['error' => $this->l10n->t('Can\'t download file')];
+			}
+
 			$body = $response->getBody();
 			if (is_resource($body)) {
 				while (!feof($body)) {
