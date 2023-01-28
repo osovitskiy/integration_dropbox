@@ -16,12 +16,11 @@ use Exception;
 use OCA\Dropbox\AppInfo\Application;
 use OCA\Dropbox\BackgroundJob\ImportDropboxJob;
 use OCP\BackgroundJob\IJobList;
+use OCP\Files\FileInfo;
 use OCP\Files\Folder;
 use OCP\Files\ForbiddenException;
 use OCP\Files\IRootFolder;
-
 use OCP\Files\NotFoundException;
-
 use OCP\Files\NotPermittedException;
 use OCP\IConfig;
 use OCP\Lock\LockedException;
@@ -230,6 +229,7 @@ class DropboxStorageAPIService {
 		$downloadedSize = 0;
 		$nbDownloaded = 0;
 		$totalSeenNumber = 0;
+		$knownFolders = array('' => $folder, '.' => $folder);
 
 		$params = [
 			'limit' => 2000,
@@ -250,9 +250,12 @@ class DropboxStorageAPIService {
 			}
 			if (isset($result['entries']) && is_array($result['entries'])) {
 				foreach ($result['entries'] as $entry) {
+					if (isset($entry['.tag']) && $entry['.tag'] === 'folder') {
+						$this->createFolder($entry, $knownFolders);
+					}
 					if (isset($entry['.tag']) && $entry['.tag'] === 'file') {
 						$totalSeenNumber++;
-						$size = $this->getFile($accessToken, $refreshToken, $clientID, $clientSecret, $userId, $entry, $folder);
+						$size = $this->getFile($accessToken, $refreshToken, $clientID, $clientSecret, $userId, $entry, $knownFolders);
 						if (!is_null($size)) {
 							$nbDownloaded++;
 							$this->config->setUserValue($userId, Application::APP_ID, 'nb_imported_files', (string)($alreadyImported + $nbDownloaded));
@@ -283,6 +286,45 @@ class DropboxStorageAPIService {
 	}
 
 	/**
+	 * @param array $folderItem
+	 * @param array $knownFolders
+	 * @return void
+	 */
+	private function createFolder(array $folderItem, array &$knownFolders): void {
+		$folderName = $folderItem['name'];
+		$path = preg_replace('/^\//', '', $folderItem['path_lower'] ?? '.');
+		$pathParts = pathinfo($path);
+		$dirName = $pathParts['dirname'];
+		if (!isset($knownFolders[$dirName])) {
+			$this->logger->warning(
+				'Dropbox error, unrecognized parent folder "' . $dirName . '"',
+				['app' => $this->appName]
+			);
+			return;
+		}
+		$parentFolder = $knownFolders[$dirName];
+		if ($parentFolder->nodeExists($folderName)) {
+			$folderNode = $parentFolder->get($folderName);
+			if ($folderNode->getType() === FileInfo::TYPE_FOLDER) {
+				$knownFolders[$path] = $folderNode;
+			} else {
+				try {
+					$folderNode->delete();
+				} catch (NotPermittedException $e) {
+					$this->logger->warning(
+						'Dropbox error, can\'t delete obsolete file "' . $path . '"',
+						['app' => $this->appName]
+					);
+					return;
+				}
+				$knownFolders[$path] = $parentFolder->newFolder($folderName);
+			}
+		} else {
+			$knownFolders[$path] = $parentFolder->newFolder($folderName);
+		}
+	}
+
+	/**
 	 * @param string $accessToken
 	 * @param string $refreshToken
 	 * @param string $clientID
@@ -293,36 +335,59 @@ class DropboxStorageAPIService {
 	 * @return ?float downloaded size, null if already existing or network error
 	 */
 	private function getFile(string $accessToken, string $refreshToken, string $clientID, string $clientSecret,
-		string $userId, array $fileItem, Folder $topFolder): ?float {
+		string $userId, array $fileItem, array &$knownFolders): ?float {
 		$fileName = $fileItem['name'];
-		$path = preg_replace('/^\//', '', $fileItem['path_display'] ?? '.');
+		$path = preg_replace('/^\//', '', $fileItem['path_lower'] ?? '.');
 		$pathParts = pathinfo($path);
 		$dirName = $pathParts['dirname'];
-		if ($dirName === '.') {
-			$saveFolder = $topFolder;
+		if (!isset($knownFolders[$dirName])) {
+			$this->logger->warning(
+				'Dropbox error, unrecognized parent folder "' . $dirName . '"',
+				['app' => $this->appName]
+			);
+			return null;
+		}
+		$ts = null;
+		if (isset($fileItem['server_modified'])) {
+			$d = new Datetime($fileItem['server_modified']);
+			$ts = $d->getTimestamp();
+		}
+		$saveFolder = $knownFolders[$dirName];
+		if ($saveFolder->nodeExists($fileName)) {
+			$fileNode = $saveFolder->get($fileName);
+			if ($fileNode->getType() === FileInfo::TYPE_FILE) {
+				if ($ts !== null && $ts > $fileNode->getMTime()) {
+					$savedFile = $fileNode;
+				} else {
+					return null;
+				}
+			} else {
+				try {
+					$fileNode->delete();
+				} catch (NotPermittedException $e) {
+					$this->logger->warning(
+						'Dropbox error, can\'t delete obsolete folder "' . $path . '"',
+						['app' => $this->appName]
+					);
+					return null;
+				}
+			}
 		} else {
-			$saveFolder = $this->createAndGetFolder($dirName, $topFolder);
-			if (is_null($saveFolder)) {
+			try {
+				$savedFile = $saveFolder->newFile($fileName);
+			} catch (NotFoundException $e) {
 				$this->logger->warning(
-					'Dropbox error, can\'t create directory "' . $dirName . '"',
+					'Dropbox error, can\'t create file "' . $fileName . '" in "' . $saveFolder->getPath() . '"',
 					['app' => $this->appName]
 				);
 				return null;
 			}
 		}
 		try {
-			if ($saveFolder->nodeExists($fileName)) {
-				return null;
-			}
-		} catch (ForbiddenException $e) {
-			return null;
-		}
-		try {
-			$savedFile = $saveFolder->newFile($fileName);
 			$resource = $savedFile->fopen('w');
 		} catch (NotFoundException|NotPermittedException|LockedException $e) {
 			$this->logger->warning(
-				'Dropbox error, can\'t create file "' . $fileName . '" in "' . $saveFolder->getPath() . '"',
+				'Dropbox error, can\'t open file for writing "' . $path . '"',
 				['app' => $this->appName]
 			);
 			return null;
@@ -349,36 +414,11 @@ class DropboxStorageAPIService {
 			return null;
 		}
 		fclose($resource);
-		if (isset($fileItem['server_modified'])) {
-			$d = new DateTime($fileItem['server_modified']);
-			$ts = $d->getTimestamp();
+		if ($ts !== null) {
 			$savedFile->touch($ts);
 		} else {
 			$savedFile->touch();
 		}
 		return $fileItem['size'];
-	}
-
-	/**
-	 * @param string $dirName
-	 * @param Folder $topFolder
-	 * @return ?Folder
-	 * @throws NotFoundException
-	 * @throws \OCP\Files\NotPermittedException
-	 */
-	private function createAndGetFolder(string $dirName, Folder $topFolder): ?Folder {
-		$dirs = explode('/', $dirName);
-		$dirNode = $topFolder;
-		foreach ($dirs as $dir) {
-			if (!$dirNode->nodeExists($dir)) {
-				$dirNode = $dirNode->newFolder($dir);
-			} else {
-				$dirNode = $dirNode->get($dir);
-				if (!$dirNode instanceof Folder) {
-					return null;
-				}
-			}
-		}
-		return $dirNode;
 	}
 }
