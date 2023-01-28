@@ -366,6 +366,7 @@ class DropboxStorageAPIService {
 		$res = $this->dropboxApiService->downloadFile(
 			$accessToken, $refreshToken, $clientID, $clientSecret, $userId, $resource, $fileItem['id']
 		);
+		fclose($resource);
 		if (isset($res['error'])) {
 			$this->logger->warning('Dropbox error downloading file ' . $fileName . ' : ' . $res['error'], ['app' => $this->appName]);
 			try {
@@ -377,7 +378,6 @@ class DropboxStorageAPIService {
 			}
 			return null;
 		}
-		fclose($resource);
 		if ($ts !== null) {
 			$savedFile->touch($ts);
 		} else {
