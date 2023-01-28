@@ -91,7 +91,7 @@ class DropboxStorageAPIService {
 	 * @return void
 	 */
 	public function importDropboxJob(string $userId): void {
-		$this->logger->error('Importing dropbox files for ' . $userId);
+		$this->logger->info('Importing dropbox files for ' . $userId, ['app' => $this->appName]);
 
 		// in case SSE is enabled
 		$this->userScopeService->setUserScope($userId);
@@ -125,13 +125,19 @@ class DropboxStorageAPIService {
 		try {
 			$targetNode = $this->root->getUserFolder($userId)->get($targetPath);
 			if ($targetNode->isShared()) {
-				$this->logger->error('Target path ' . $targetPath . 'is shared, resorting to user root folder');
+				$this->logger->error(
+					'Target path ' . $targetPath . 'is shared, resorting to user root folder',
+					['app' => $this->appName]
+				);
 				$targetPath = '/';
 			}
 		} catch (NotFoundException) {
 			// noop, folder doesn't exist
 		} catch (NotPermittedException) {
-			$this->logger->error('Cannot determine if target path ' . $targetPath . 'is shared, resorting to root folder');
+			$this->logger->error(
+				'Cannot determine if target path ' . $targetPath . 'is shared, resorting to root folder',
+				['app' => $this->appName]
+			);
 			$targetPath = '/';
 		}
 
@@ -142,7 +148,7 @@ class DropboxStorageAPIService {
 			$result = $this->importFiles($accessToken, $refreshToken, $clientID, $clientSecret, $userId, $targetPath, 500000000, $alreadyImported);
 		} catch (Exception|Throwable $e) {
 			$result = [
-				'error' => 'Unknow job failure. ' . $e->getMessage(),
+				'error' => 'Importing dropbox files for ' . $userId . ' failed: ' . $e->getMessage(),
 			];
 		}
 		if (isset($result['finished']) && $result['finished']) {
@@ -156,6 +162,10 @@ class DropboxStorageAPIService {
 		}
 		if (isset($result['error'])) {
 			$this->userConfig->setValueString($userId, Application::APP_ID, 'last_import_error', $result['error'], lazy: true);
+			$this->logger->error(
+				$result['error'],
+				['app' => $this->appName]
+			);
 		}
 		if ((!isset($result['finished']) || !$result['finished']) && !isset($result['error'])) {
 			$ts = (string)(new DateTime())->getTimestamp();
