@@ -24,7 +24,6 @@ use Psr\Log\LoggerInterface;
 use Throwable;
 
 class DropboxStorageAPIService {
-
 	/**
 	 * Service to make requests to Dropbox API
 	 */
@@ -66,8 +65,8 @@ class DropboxStorageAPIService {
 	 * @return array{error?: string, targetPath?: string}
 	 */
 	public function startImportDropbox(string $userId): array {
-		$targetPath = $this->userConfig->getValueString($userId, Application::APP_ID, 'output_dir', '/Dropbox import', lazy: true);
-		$targetPath = $targetPath ?: '/Dropbox import';
+		$targetPath = $this->userConfig->getValueString($userId, Application::APP_ID, 'output_dir', Application::DEFAULT_IMPORT_FOLDER, lazy: true);
+		$targetPath = $targetPath ?: Application::DEFAULT_IMPORT_FOLDER;
 		// create root folder
 		$userFolder = $this->root->getUserFolder($userId);
 		if (!$userFolder->nodeExists($targetPath)) {
@@ -119,9 +118,8 @@ class DropboxStorageAPIService {
 		$clientID = $this->secretService->getEncryptedAppValue('client_id');
 		$clientSecret = $this->secretService->getEncryptedAppValue('client_secret');
 		// import batch of files
-		$targetPath = $this->userConfig->getValueString($userId, Application::APP_ID, 'output_dir', '/Dropbox import', lazy: true);
-		$targetPath = $targetPath ?: '/Dropbox import';
-
+		$targetPath = $this->userConfig->getValueString($userId, Application::APP_ID, 'output_dir', Application::DEFAULT_IMPORT_FOLDER, lazy: true);
+		$targetPath = $targetPath ?: Application::DEFAULT_IMPORT_FOLDER;
 		try {
 			$targetNode = $this->root->getUserFolder($userId)->get($targetPath);
 			if ($targetNode->isShared()) {
