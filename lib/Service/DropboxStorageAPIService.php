@@ -150,9 +150,9 @@ class DropboxStorageAPIService {
 			];
 		}
 		if (isset($result['finished']) && $result['finished']) {
-			$this->userConfig->setValueString($userId, Application::APP_ID, 'importing_dropbox', '0', lazy: true);
-			$this->userConfig->setValueString($userId, Application::APP_ID, 'nb_imported_files', '0', lazy: true);
-			$this->userConfig->setValueString($userId, Application::APP_ID, 'last_dropbox_import_timestamp', '0', lazy: true);
+			$ts = (new Datetime())->getTimestamp();
+			$this->userConfig->setValueString($userId, Application::APP_ID, 'nb_imported_files', $result['totalSeen'], lazy: true);
+			$this->userConfig->setValueString($userId, Application::APP_ID, 'last_dropbox_import_timestamp', $ts, lazy: true);
 			$this->dropboxApiService->sendNCNotification($userId, 'import_dropbox_finished', [
 				'nbImported' => $result['totalSeen'],
 				'targetPath' => $targetPath,
@@ -165,12 +165,8 @@ class DropboxStorageAPIService {
 				['app' => $this->appName]
 			);
 		}
-		if ((!isset($result['finished']) || !$result['finished']) && !isset($result['error'])) {
-			$ts = (string)(new DateTime())->getTimestamp();
-			$this->userConfig->setValueString($userId, Application::APP_ID, 'last_dropbox_import_timestamp', $ts, lazy: true);
-			$this->jobList->add(ImportDropboxJob::class, ['user_id' => $userId]);
-		}
 		$this->userConfig->setValueString($userId, Application::APP_ID, 'dropbox_import_running', '0', lazy: true);
+		$this->jobList->add(ImportDropboxJob::class, ['user_id' => $userId]);
 	}
 
 	/**
