@@ -188,13 +188,16 @@ class DropboxStorageAPIService {
 			];
 		}
 		if (isset($result['finished']) && $result['finished']) {
+			$firstSuccess = $this->config->getUserValue($userId, Application::APP_ID, 'last_dropbox_import_timestamp', '0') === '0';
 			$ts = (new Datetime())->getTimestamp();
 			$this->config->setUserValue($userId, Application::APP_ID, 'nb_imported_files', $result['totalSeen']);
 			$this->config->setUserValue($userId, Application::APP_ID, 'last_dropbox_import_timestamp', $ts);
-			$this->dropboxApiService->sendNCNotification($userId, 'import_dropbox_finished', [
-				'nbImported' => $result['totalSeen'],
-				'targetPath' => $targetPath,
-			]);
+			if ($firstSuccess) {
+				$this->dropboxApiService->sendNCNotification($userId, 'import_dropbox_finished', [
+					'nbImported' => $result['totalSeen'],
+					'targetPath' => $targetPath,
+				]);
+			}
 		}
 		if (isset($result['error'])) {
 			$this->logger->error(
