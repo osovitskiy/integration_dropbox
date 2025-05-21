@@ -74,6 +74,7 @@ class DropboxAPIService {
 		try {
 			$url = 'https://api.dropboxapi.com/2/' . $endPoint;
 			$options = [
+				'timeout' => 120,
 				'headers' => [
 					'Authorization' => 'Bearer ' . $accessToken,
 					'User-Agent' => 'Nextcloud Dropbox integration',
