@@ -208,7 +208,7 @@ class DropboxStorageAPIService {
 			'recursive' => true,
 			'include_deleted' => false,
 			'include_has_explicit_shared_members' => false,
-			'include_mounted_folders' => true,
+			'include_mounted_folders' => false,
 			'include_non_downloadable_files' => false,
 		];
 		do {
